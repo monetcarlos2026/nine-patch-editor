@@ -2,6 +2,8 @@
 
 A local macOS-friendly editor for Android `.9.png` assets.
 
+![Nine-Patch Editor preview](assets/preview.png)
+
 ## Features
 
 - Open or drag PNG and `.9.png` files.
