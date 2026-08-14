@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "macOS desktop editor for Android .9.png assets",
   "main": "main.js",
+  "license": "GPL-3.0-only",
   "private": true,
   "scripts": {
     "start": "electron .",

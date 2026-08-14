@@ -54,3 +54,7 @@ The compiler probes these `aapt` paths:
 - `/usr/local/bin/aapt`
 
 When compiling on macOS, the app asks where to save the compiled `.9.png`.
+
+## License
+
+This project is licensed under the GNU General Public License v3.0 only. See [LICENSE](LICENSE).
