@@ -23,6 +23,12 @@ On macOS, double-click:
 打开点九编辑器.command
 ```
 
+On Windows, double-click:
+
+```text
+start-nine-patch-editor.bat
+```
+
 Or run manually:
 
 ```bash
