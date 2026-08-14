@@ -9,8 +9,8 @@ const state = {
   locale: localStorage.getItem('ninePatchLocale') || 'zh-CN',
   tool: 'stretchX',
   ranges: {
-    stretchX: [0, 1],
-    stretchY: [0, 1],
+    stretchX: [[0, 1]],
+    stretchY: [[0, 1]],
     contentX: [0, 1],
     contentY: [0, 1]
   },
@@ -367,9 +367,13 @@ Object.entries(rangeInputs).forEach(([key, inputs]) => {
     });
     input.addEventListener('change', () => {
       const max = key.endsWith('X') ? contentW() : contentH();
-      const next = [...state.ranges[key]];
+      const next = [...getDisplayRange(key)];
       next[index] = Number(input.value);
-      state.ranges[key] = clampRange(next, max);
+      if (isStretchKey(key)) {
+        setLastStretchRange(key, clampRange(next, max));
+      } else {
+        state.ranges[key] = clampRange(next, max);
+      }
       commitUndoCapture();
       syncRangeInputs();
       drawAll();
@@ -418,7 +422,7 @@ editorCanvas.addEventListener('pointerdown', (event) => {
   const point = eventToContentPoint(event);
   if (!point) return;
   editorCanvas.setPointerCapture(event.pointerId);
-  state.dragging = { start: point, current: point, undo: captureEditorState() };
+  state.dragging = { start: point, current: point, undo: captureEditorState(), key: state.tool, previewRange: null };
   updateRangeFromDrag();
 });
 
@@ -431,7 +435,17 @@ editorCanvas.addEventListener('pointermove', (event) => {
 });
 
 editorCanvas.addEventListener('pointerup', () => {
-  if (state.dragging) commitUndoSnapshot(state.dragging.undo);
+  if (state.dragging) {
+    const { key, previewRange, undo } = state.dragging;
+    if (isStretchKey(key) && previewRange) {
+      state.ranges[key] = normalizeStretchRanges([...state.ranges[key], previewRange], key.endsWith('X') ? contentW() : contentH());
+    }
+    state.dragging = null;
+    commitUndoSnapshot(undo);
+    syncRangeInputs();
+    drawAll();
+    return;
+  }
   state.dragging = null;
 });
 
@@ -544,8 +558,8 @@ function drawEmptyState(rect) {
 function drawGuides(ctx, x, y, scale, labels) {
   const w = contentW();
   const h = contentH();
-  const sx = state.ranges.stretchX;
-  const sy = state.ranges.stretchY;
+  const sx = getStretchRanges('stretchX', true);
+  const sy = getStretchRanges('stretchY', true);
   const cx = state.ranges.contentX;
   const cy = state.ranges.contentY;
 
@@ -553,8 +567,12 @@ function drawGuides(ctx, x, y, scale, labels) {
   ctx.lineCap = 'butt';
   ctx.lineWidth = 3;
   ctx.strokeStyle = '#2c8df0';
-  drawLine(ctx, x + sx[0] * scale, y - 10, x + sx[1] * scale, y - 10);
-  drawLine(ctx, x - 10, y + sy[0] * scale, x - 10, y + sy[1] * scale);
+  sx.forEach((range) => {
+    drawLine(ctx, x + range[0] * scale, y - 10, x + range[1] * scale, y - 10);
+  });
+  sy.forEach((range) => {
+    drawLine(ctx, x - 10, y + range[0] * scale, x - 10, y + range[1] * scale);
+  });
 
   ctx.strokeStyle = '#43b26d';
   drawLine(ctx, x + cx[0] * scale, y + h * scale + 10, x + cx[1] * scale, y + h * scale + 10);
@@ -662,8 +680,8 @@ function drawPreview() {
 
   renderNinePatch(previewCtx, targetW, targetH);
   if (els.showContent.checked) {
-    const [x0, x1] = scaleRangeToTarget(state.ranges.contentX, contentW(), targetW, state.ranges.stretchX);
-    const [y0, y1] = scaleRangeToTarget(state.ranges.contentY, contentH(), targetH, state.ranges.stretchY);
+    const [x0, x1] = scaleRangeToTarget(state.ranges.contentX, contentW(), targetW, getStretchRanges('stretchX', true));
+    const [y0, y1] = scaleRangeToTarget(state.ranges.contentY, contentH(), targetH, getStretchRanges('stretchY', true));
     previewCtx.fillStyle = 'rgba(67, 178, 109, .18)';
     previewCtx.fillRect(x0, y0, x1 - x0, y1 - y0);
   }
@@ -673,8 +691,8 @@ function renderNinePatch(ctx, targetW, targetH) {
   const src = state.contentCanvas;
   const srcW = contentW();
   const srcH = contentH();
-  const xCuts = makeCuts(srcW, targetW, state.ranges.stretchX);
-  const yCuts = makeCuts(srcH, targetH, state.ranges.stretchY);
+  const xCuts = makeCuts(srcW, targetW, getStretchRanges('stretchX', true));
+  const yCuts = makeCuts(srcH, targetH, getStretchRanges('stretchY', true));
 
   for (const xs of xCuts) {
     for (const ys of yCuts) {
@@ -684,17 +702,50 @@ function renderNinePatch(ctx, targetW, targetH) {
   }
 }
 
-function makeCuts(srcSize, targetSize, stretch) {
-  const before = Math.max(0, stretch[0]);
-  const stretchSize = Math.max(1, stretch[1] - stretch[0]);
-  const after = Math.max(0, srcSize - stretch[1]);
-  const fixed = before + after;
-  const stretched = Math.max(1, targetSize - fixed);
-  return [
-    { source: 0, size: before, dest: 0, outSize: before },
-    { source: stretch[0], size: stretchSize, dest: before, outSize: stretched },
-    { source: stretch[1], size: after, dest: before + stretched, outSize: after }
-  ];
+function makeCuts(srcSize, targetSize, stretchRanges) {
+  const ranges = normalizeStretchRanges(stretchRanges, srcSize);
+  const cuts = [];
+  let source = 0;
+
+  ranges.forEach(([start, end]) => {
+    if (start > source) {
+      cuts.push({ source, size: start - source, stretch: false });
+    }
+    cuts.push({ source: start, size: end - start, stretch: true });
+    source = end;
+  });
+
+  if (source < srcSize) {
+    cuts.push({ source, size: srcSize - source, stretch: false });
+  }
+
+  const fixedTotal = cuts
+    .filter((cut) => !cut.stretch)
+    .reduce((total, cut) => total + cut.size, 0);
+  const stretchSourceTotal = cuts
+    .filter((cut) => cut.stretch)
+    .reduce((total, cut) => total + cut.size, 0);
+  const stretchTargetTotal = Math.max(0, targetSize - fixedTotal);
+  let remainingStretch = stretchTargetTotal;
+  let remainingSource = stretchSourceTotal;
+  let dest = 0;
+
+  cuts.forEach((cut) => {
+    cut.dest = dest;
+    if (cut.stretch) {
+      const isLastStretch = remainingSource === cut.size;
+      cut.outSize = isLastStretch
+        ? remainingStretch
+        : clamp(Math.round((stretchTargetTotal * cut.size) / stretchSourceTotal), 0, remainingStretch);
+      remainingStretch -= cut.outSize;
+      remainingSource -= cut.size;
+    } else {
+      cut.outSize = cut.size;
+    }
+    dest += cut.outSize;
+  });
+
+  return cuts;
 }
 
 function scaleRangeToTarget(range, srcSize, targetSize, stretch) {
@@ -742,12 +793,18 @@ function eventToContentPoint(event) {
 
 function updateRangeFromDrag() {
   const { start, current } = state.dragging;
-  const key = state.tool;
+  const key = state.dragging.key;
   const axis = key.endsWith('X') ? 'x' : 'y';
   const max = key.endsWith('X') ? contentW() : contentH();
   const a = start[axis];
   const b = current[axis];
-  state.ranges[key] = clampRange([Math.min(a, b), Math.max(a, b)], max);
+  if (a === b) {
+    if (isStretchKey(key)) state.dragging.previewRange = null;
+  } else if (isStretchKey(key)) {
+    state.dragging.previewRange = clampRange([Math.min(a, b), Math.max(a, b)], max);
+  } else {
+    state.ranges[key] = clampRange([Math.min(a, b), Math.max(a, b)], max);
+  }
   syncRangeInputs();
   drawAll();
 }
@@ -776,8 +833,8 @@ function detectRanges(img, hasBorder) {
   const w = hasBorder ? img.width - 2 : img.width;
   const h = hasBorder ? img.height - 2 : img.height;
   const fallback = {
-    stretchX: [Math.floor(w * 0.35), Math.ceil(w * 0.65)],
-    stretchY: [Math.floor(h * 0.35), Math.ceil(h * 0.65)],
+    stretchX: [[Math.floor(w * 0.35), Math.ceil(w * 0.65)]],
+    stretchY: [[Math.floor(h * 0.35), Math.ceil(h * 0.65)]],
     contentX: [0, w],
     contentY: [0, h]
   };
@@ -790,35 +847,53 @@ function detectRanges(img, hasBorder) {
   ctx.drawImage(img, 0, 0);
   const data = ctx.getImageData(0, 0, img.width, img.height).data;
   return {
-    stretchX: readHorizontalRange(data, img.width, 0, w) || fallback.stretchX,
-    stretchY: readVerticalRange(data, img.width, 0, h) || fallback.stretchY,
+    stretchX: readHorizontalRanges(data, img.width, 0, w) || fallback.stretchX,
+    stretchY: readVerticalRanges(data, img.width, 0, h) || fallback.stretchY,
     contentX: readHorizontalRange(data, img.width, img.height - 1, w) || fallback.contentX,
     contentY: readVerticalRange(data, img.width, img.width - 1, h) || fallback.contentY
   };
 }
 
 function readHorizontalRange(data, imageW, y, contentWidth) {
+  const ranges = readHorizontalRanges(data, imageW, y, contentWidth);
+  if (!ranges) return null;
+  return [ranges[0][0], ranges[ranges.length - 1][1]];
+}
+
+function readHorizontalRanges(data, imageW, y, contentWidth) {
+  const ranges = [];
   let start = null;
-  let end = null;
   for (let x = 1; x <= contentWidth; x += 1) {
     if (isBlack(data, (y * imageW + x) * 4)) {
       if (start === null) start = x - 1;
-      end = x;
+    } else if (start !== null) {
+      ranges.push([start, x - 1]);
+      start = null;
     }
   }
-  return start === null ? null : [start, Math.max(start + 1, end)];
+  if (start !== null) ranges.push([start, contentWidth]);
+  return ranges.length === 0 ? null : ranges;
 }
 
 function readVerticalRange(data, imageW, x, contentHeight) {
+  const ranges = readVerticalRanges(data, imageW, x, contentHeight);
+  if (!ranges) return null;
+  return [ranges[0][0], ranges[ranges.length - 1][1]];
+}
+
+function readVerticalRanges(data, imageW, x, contentHeight) {
+  const ranges = [];
   let start = null;
-  let end = null;
   for (let y = 1; y <= contentHeight; y += 1) {
     if (isBlack(data, (y * imageW + x) * 4)) {
       if (start === null) start = y - 1;
-      end = y;
+    } else if (start !== null) {
+      ranges.push([start, y - 1]);
+      start = null;
     }
   }
-  return start === null ? null : [start, Math.max(start + 1, end)];
+  if (start !== null) ranges.push([start, contentHeight]);
+  return ranges.length === 0 ? null : ranges;
 }
 
 function isBlack(data, i) {
@@ -847,27 +922,30 @@ function buildSourceNinePatch() {
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.drawImage(state.contentCanvas, 1, 1);
-  paintGuide(ctx, state.ranges.stretchX, 'top', w, h);
-  paintGuide(ctx, state.ranges.stretchY, 'left', w, h);
+  paintGuide(ctx, getStretchRanges('stretchX'), 'top', w, h);
+  paintGuide(ctx, getStretchRanges('stretchY'), 'left', w, h);
   paintGuide(ctx, state.ranges.contentX, 'bottom', w, h);
   paintGuide(ctx, state.ranges.contentY, 'right', w, h);
   return canvas.toDataURL('image/png');
 }
 
 function paintGuide(ctx, range, side, w, h) {
-  const [start, end] = side === 'top' || side === 'bottom'
-    ? clampRange(range, w)
-    : clampRange(range, h);
+  const isHorizontal = side === 'top' || side === 'bottom';
+  const isStretch = side === 'top' || side === 'left';
+  const max = isHorizontal ? w : h;
+  const ranges = isStretch ? normalizeStretchRanges(range, max) : [clampRange(range, max)];
   ctx.fillStyle = '#000000';
-  if (side === 'top') ctx.fillRect(start + 1, 0, end - start, 1);
-  if (side === 'bottom') ctx.fillRect(start + 1, h + 1, end - start, 1);
-  if (side === 'left') ctx.fillRect(0, start + 1, 1, end - start);
-  if (side === 'right') ctx.fillRect(w + 1, start + 1, 1, end - start);
+  ranges.forEach(([start, end]) => {
+    if (side === 'top') ctx.fillRect(start + 1, 0, end - start, 1);
+    if (side === 'bottom') ctx.fillRect(start + 1, h + 1, end - start, 1);
+    if (side === 'left') ctx.fillRect(0, start + 1, 1, end - start);
+    if (side === 'right') ctx.fillRect(w + 1, start + 1, 1, end - start);
+  });
 }
 
 function syncRangeInputs() {
   Object.entries(rangeInputs).forEach(([key, inputs]) => {
-    const range = state.ranges[key];
+    const range = getDisplayRange(key);
     inputs[0].value = range[0];
     inputs[1].value = range[1];
     const max = key.endsWith('X') ? contentW() : contentH();
@@ -896,6 +974,65 @@ function clampRange(range, max) {
   return [start, end];
 }
 
+function isStretchKey(key) {
+  return key === 'stretchX' || key === 'stretchY';
+}
+
+function getDisplayRange(key) {
+  if (!isStretchKey(key)) return state.ranges[key];
+  if (state.dragging?.key === key && state.dragging.previewRange) {
+    return state.dragging.previewRange;
+  }
+  return getLastStretchRange(key);
+}
+
+function getLastStretchRange(key) {
+  const max = key.endsWith('X') ? contentW() : contentH();
+  const ranges = normalizeStretchRanges(state.ranges[key], max);
+  return ranges[ranges.length - 1];
+}
+
+function setLastStretchRange(key, range) {
+  const max = key.endsWith('X') ? contentW() : contentH();
+  const ranges = normalizeStretchRanges(state.ranges[key], max);
+  ranges[ranges.length - 1] = clampRange(range, max);
+  state.ranges[key] = normalizeStretchRanges(ranges, max);
+}
+
+function getStretchRanges(key, includeDragging = false) {
+  const max = key.endsWith('X') ? contentW() : contentH();
+  const ranges = normalizeStretchRanges(state.ranges[key], max);
+  if (includeDragging && state.dragging?.key === key && state.dragging.previewRange) {
+    ranges.push([...state.dragging.previewRange]);
+  }
+  return normalizeStretchRanges(ranges, max);
+}
+
+function normalizeStretchRanges(ranges, max) {
+  const input = Array.isArray(ranges?.[0]) ? ranges : [ranges];
+  const normalized = input
+    .filter((range) => Array.isArray(range) && range.length >= 2)
+    .map((range) => clampRange(range, max))
+    .filter(([start, end]) => end > start)
+    .sort((a, b) => a[0] - b[0]);
+
+  const merged = [];
+  normalized.forEach(([start, end]) => {
+    const last = merged[merged.length - 1];
+    if (!last || start > last[1]) {
+      merged.push([start, end]);
+    } else {
+      last[1] = Math.max(last[1], end);
+    }
+  });
+
+  return merged.length > 0 ? merged : [[0, Math.min(1, max)]];
+}
+
+function formatRanges(ranges) {
+  return ranges.map(([start, end]) => `${start}-${end}`).join(';');
+}
+
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
@@ -920,8 +1057,8 @@ function isNinePatchName(name) {
 
 function cloneRanges(ranges) {
   return {
-    stretchX: [...ranges.stretchX],
-    stretchY: [...ranges.stretchY],
+    stretchX: normalizeStretchRanges(ranges.stretchX, contentW()).map((range) => [...range]),
+    stretchY: normalizeStretchRanges(ranges.stretchY, contentH()).map((range) => [...range]),
     contentX: [...ranges.contentX],
     contentY: [...ranges.contentY]
   };
@@ -1119,8 +1256,8 @@ function buildParamsText() {
     sourcePath: state.filePath,
     size: { width: contentW(), height: contentH() },
     stretch: {
-      x: [...state.ranges.stretchX],
-      y: [...state.ranges.stretchY]
+      x: getStretchRanges('stretchX').map((range) => [...range]),
+      y: getStretchRanges('stretchY').map((range) => [...range])
     },
     content: {
       x: [...state.ranges.contentX],
@@ -1141,8 +1278,8 @@ function buildParamsText() {
     t('paramsHeader'),
     `file=${params.file}`,
     `size=${params.size.width}x${params.size.height}`,
-    `stretchX=${params.stretch.x.join(',')}`,
-    `stretchY=${params.stretch.y.join(',')}`,
+    `stretchX=${formatRanges(params.stretch.x)}`,
+    `stretchY=${formatRanges(params.stretch.y)}`,
     `contentX=${params.content.x.join(',')}`,
     `contentY=${params.content.y.join(',')}`,
     `preview=${params.preview.width}x${params.preview.height}`,
