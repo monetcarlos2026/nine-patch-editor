@@ -1,0 +1,14 @@
+{
+  "name": "monet-nine-patch-editor",
+  "version": "0.1.0",
+  "description": "macOS desktop editor for Android .9.png assets",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "web": "node server.js"
+  },
+  "devDependencies": {
+    "electron": "^37.2.6"
+  }
+}

@@ -1,0 +1,7 @@
+node_modules/
+dist/
+exports/
+server.log
+server.pid
+.DS_Store
+*.tmp

@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>点九编辑器</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="title-block">
+          <div class="app-title" data-i18n="appTitle">点九编辑器</div>
+          <div class="file-meta" id="fileMeta" data-i18n="noFile">未打开文件</div>
+        </div>
+        <div class="toolbar">
+          <select class="language-select" id="languageSelect" title="Language">
+            <option value="zh-CN">中文</option>
+            <option value="en">English</option>
+            <option value="ja">日本語</option>
+            <option value="ko">한국어</option>
+          </select>
+          <input class="file-input" id="fileInput" type="file" accept="image/png,.9.png" />
+          <label class="tool-button primary open-label" id="openBtn" for="fileInput" data-i18n="open" data-title-i18n="openTitle" title="打开 PNG">打开</label>
+          <button class="tool-button" id="resetBtn" data-i18n="reset" data-title-i18n="resetTitle" title="恢复到打开文件时的初始区域">复位</button>
+          <button class="tool-button" id="exportSourceBtn" data-i18n="source" data-title-i18n="sourceTitle" title="导出带 1px 引导边框的源图">源图</button>
+          <button class="tool-button" id="exportCompiledBtn" data-i18n="compile" data-title-i18n="compileTitle" title="调用 aapt singleCrunch 导出编译版">编译</button>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <aside class="side-panel">
+          <section class="panel-section">
+            <div class="section-label" data-i18n="tools">工具</div>
+            <div class="tool-grid">
+              <button class="mode-button active" data-tool="stretchX" data-i18n="stretchX">水平拉伸</button>
+              <button class="mode-button" data-tool="stretchY" data-i18n="stretchY">垂直拉伸</button>
+              <button class="mode-button" data-tool="contentX" data-i18n="contentX">内容宽度</button>
+              <button class="mode-button" data-tool="contentY" data-i18n="contentY">内容高度</button>
+            </div>
+          </section>
+
+          <section class="panel-section">
+            <div class="section-header">
+              <div class="section-label" data-i18n="pixelRanges">像素范围</div>
+              <button class="mini-button" id="copyParamsBtn" data-i18n="copyParams" title="复制当前点九参数">复制参数</button>
+            </div>
+            <div class="range-form">
+              <label>
+                <span data-i18n="stretchX">水平拉伸</span>
+                <input id="stretchXStart" type="number" min="0" />
+                <input id="stretchXEnd" type="number" min="1" />
+              </label>
+              <label>
+                <span data-i18n="stretchY">垂直拉伸</span>
+                <input id="stretchYStart" type="number" min="0" />
+                <input id="stretchYEnd" type="number" min="1" />
+              </label>
+              <label>
+                <span data-i18n="contentX">内容宽度</span>
+                <input id="contentXStart" type="number" min="0" />
+                <input id="contentXEnd" type="number" min="1" />
+              </label>
+              <label>
+                <span data-i18n="contentY">内容高度</span>
+                <input id="contentYStart" type="number" min="0" />
+                <input id="contentYEnd" type="number" min="1" />
+              </label>
+            </div>
+          </section>
+
+          <section class="panel-section">
+            <div class="section-label" data-i18n="previewSize">预览尺寸</div>
+            <div class="slider-row">
+              <span data-i18n="width">宽</span>
+              <input id="previewW" type="range" min="24" max="900" value="360" />
+              <output id="previewWOut">360</output>
+            </div>
+            <div class="slider-row">
+              <span data-i18n="height">高</span>
+              <input id="previewH" type="range" min="24" max="900" value="360" />
+              <output id="previewHOut">360</output>
+            </div>
+            <label class="check-row">
+              <input id="showContent" type="checkbox" />
+              <span data-i18n="showContent">显示内容区域</span>
+            </label>
+          </section>
+
+          <section class="panel-section status-section">
+            <div class="section-label" data-i18n="status">状态</div>
+            <div id="statusText" class="status-text" data-i18n="waitingOpen">等待打开 PNG</div>
+          </section>
+        </aside>
+
+        <section class="canvas-area" id="dropZone">
+          <canvas id="editorCanvas"></canvas>
+        </section>
+
+        <aside class="preview-panel">
+          <div class="section-label" data-i18n="livePreview">实时预览</div>
+          <div class="preview-stage">
+            <canvas id="previewCanvas"></canvas>
+          </div>
+          <div class="chunk-badges">
+            <span id="borderBadge"></span>
+            <span id="chunkBadge"></span>
+          </div>
+        </aside>
+      </main>
+    </div>
+    <script src="./renderer.js"></script>
+  </body>
+</html>
